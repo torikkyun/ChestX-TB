@@ -1,3 +1,7 @@
+# Custom
+data/
+TB_Chest_Radiography_Database/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
