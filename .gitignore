@@ -1,6 +1,7 @@
 # Custom
 data/
 TB_Chest_Radiography_Database/
+*.pth
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
