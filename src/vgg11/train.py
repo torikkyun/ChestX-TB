@@ -2,29 +2,20 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+from torchvision import datasets, transforms, models
 import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.metrics import (
     accuracy_score,
     precision_recall_fscore_support,
     confusion_matrix,
 )
-import timm
+from collections import Counter
+
 
 # %%
-# Định nghĩa transform, tạo dataset và dataloader cho cả train, val và test
-train_transform = transforms.Compose(
-    [
-        transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(10),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-        ),
-    ]
-)
-val_test_transform = transforms.Compose(
+# Định nghĩa transform, tạo dataset và dataloader
+transform = transforms.Compose(
     [
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -34,8 +25,8 @@ val_test_transform = transforms.Compose(
     ]
 )
 
-data_dir = "data/TB_Chest_Radiography_Database"
-full_dataset = datasets.ImageFolder(data_dir, transform=val_test_transform)
+data_dir = "../../data/TB_Chest_Radiography_Database"
+full_dataset = datasets.ImageFolder(data_dir, transform=transform)
 
 train_size = int(0.7 * len(full_dataset))
 val_size = int(0.2 * len(full_dataset))
@@ -54,15 +45,87 @@ test_loader = DataLoader(
     test_dataset, batch_size=8, shuffle=False, num_workers=4
 )
 
+# %%
+dataset_labels = ["Train", "Validation", "Test"]
+dataset_counts = [len(train_dataset), len(val_dataset), len(test_dataset)]
+
+plt.figure(figsize=(7, 5))
+plt.bar(
+    dataset_labels, dataset_counts, color=["skyblue", "lightgreen", "salmon"]
+)
+plt.ylabel("Số lượng mẫu")
+plt.title("Số lượng mẫu trong các tập Train, Validation, Test")
+for i, count in enumerate(dataset_counts):
+    plt.text(i, count + 10, str(count), ha="center")
+plt.show()
+
+
+#  %%
+def count_classes(dataset):
+    labels = [label for _, label in dataset]
+    return Counter(labels)
+
+
+train_class_counts = count_classes(train_dataset)
+val_class_counts = count_classes(val_dataset)
+test_class_counts = count_classes(test_dataset)
+
+class_names = ["Normal", "TB"]
+
+labels = class_names
+train_counts = [train_class_counts.get(i, 0) for i in range(len(class_names))]
+val_counts = [val_class_counts.get(i, 0) for i in range(len(class_names))]
+test_counts = [test_class_counts.get(i, 0) for i in range(len(class_names))]
+
+x = range(len(labels))
+width = 0.25
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+rects1 = ax.bar(
+    [i - width for i in x], train_counts, width, label="Train", color="skyblue"
+)
+rects2 = ax.bar(x, val_counts, width, label="Validation", color="lightgreen")
+rects3 = ax.bar(
+    [i + width for i in x], test_counts, width, label="Test", color="salmon"
+)
+
+ax.set_ylabel("Số lượng mẫu")
+ax.set_title("Phân bố lớp trong các tập Train, Validation, Test")
+ax.set_xticks(x)
+ax.set_xticklabels(labels)
+ax.legend()
+
+
+def autolabel(rects):
+    for rect in rects:
+        height = rect.get_height()
+        ax.annotate(
+            "{}".format(height),
+            xy=(rect.get_x() + rect.get_width() / 2, height),
+            xytext=(0, 3),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+        )
+
+
+autolabel(rects1)
+autolabel(rects2)
+autolabel(rects3)
+
+fig.tight_layout()
+plt.show()
 
 # %%
-# Tạo model resnetv2_50
-model = timm.create_model("resnetv2_50x1_bit", pretrained=True)
+# Tạo model vgg11
+model = models.vgg11(weights=models.VGG11_Weights.DEFAULT)
 for param in model.parameters():
     param.requires_grad = False
-model.head = nn.Sequential(
-    nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Linear(2048, 1)
-)
+num_ftrs = model.classifier[6].in_features
+model.classifier[6] = nn.Linear(num_ftrs, 1)
+for param in model.classifier[6].parameters():
+    param.requires_grad = True
 
 # %%
 # Thiết lập device
@@ -108,6 +171,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
         true_labels, predictions, average="binary"
     )
     cm = confusion_matrix(true_labels, predictions)
+    lr = scheduler.get_last_lr()[0]
 
     return (
         epoch_loss,
@@ -116,7 +180,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
         recall,
         f1,
         cm,
-        scheduler.get_last_lr()[0],
+        lr,
     )
 
 
@@ -178,21 +242,21 @@ for epoch in range(num_epochs):
 
     print(f"Epoch [{epoch+1}/{num_epochs}]")
     print(
-        f"Train Loss: {train_loss:.4f}, "
-        f"Accuracy: {train_acc:.4f}, "
-        f"Precision: {train_prec:.4f}, "
-        f"Recall: {train_recall:.4f}, "
-        f"F1-score: {train_f1:.4f}, "
-        f"Learning Rate: {train_lr:.4f}, "
-        f"Confusion Matrix: {train_cm:.4f}"
+        f"Train Loss: {float(train_loss):.4f}, "
+        f"Accuracy: {float(train_acc):.4f}, "
+        f"Precision: {float(train_prec):.4f}, "
+        f"Recall: {float(train_recall):.4f}, "
+        f"F1-score: {float(train_f1):.4f}, "
+        f"Confusion Matrix:\n{train_cm}, "
+        f"Learning Rate: {float(train_lr)}"
     )
     print(
-        f"Train Loss: {val_loss:.4f}, "
-        f"Accuracy: {val_acc:.4f}, "
-        f"Precision: {val_prec:.4f}, "
-        f"Recall: {val_recall:.4f}, "
-        f"F1-score: {val_f1:.4f}, "
-        f"Confusion Matrix: {val_cm:.4f}"
+        f"Validation Loss: {float(val_loss):.4f}, "
+        f"Accuracy: {float(val_acc):.4f}, "
+        f"Precision: {float(val_prec):.4f}, "
+        f"Recall: {float(val_recall):.4f}, "
+        f"F1-score: {float(val_f1):.4f}, "
+        f"Confusion Matrix:\n{val_cm}"
     )
 
     # Lưu model tốt nhất dựa trên F1-score
@@ -212,10 +276,42 @@ plt.show()
 
 # %%
 # Test phase
-model.load_state_dict(torch.load("best_model.pth"))
+model.load_state_dict(
+    torch.load("best_model.pth", map_location=torch.device("cpu"))
+    # torch.load("best_model.pth")
+)
 test_loss, test_acc, test_prec, test_recall, test_f1, test_cm = validate(
     model, test_loader, criterion, device
 )
+
+plt.figure(figsize=(15, 5))
+plt.subplots_adjust(top=0.9)
+
+plt.subplot(1, 2, 1)
+sns.heatmap(test_cm, annot=True, fmt="d", cmap="Blues")
+plt.title("Confusion Matrix", pad=20)
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+
+metrics = ["Accuracy", "Precision", "Recall", "F1-score"]
+values = [test_acc, test_prec, test_recall, test_f1]
+
+plt.subplot(1, 2, 2)
+bars = plt.bar(metrics, values)
+plt.title("Model Performance Metrics", pad=20),
+plt.ylim(0, 1.1)
+
+for bar in bars:
+    height = bar.get_height()
+    plt.text(
+        bar.get_x() + bar.get_width() / 2.0,
+        height + 0.02,
+        f"{height:.4f}",
+        ha="center",
+        va="bottom",
+    )
+
+plt.tight_layout()
 
 print("\nTest Results:")
 print(f"Loss: {test_loss:.4f}")
@@ -223,4 +319,7 @@ print(f"Accuracy: {test_acc:.4f}")
 print(f"Precision: {test_prec:.4f}")
 print(f"Recall: {test_recall:.4f}")
 print(f"F1-score: {test_f1:.4f}")
-print(f"Confusion Matrix: {test_cm:.4f}")
+print(f"Confusion Matrix:\n{test_cm}")
+
+plt.savefig("test_results.png", bbox_inches="tight", dpi=300)
+plt.close()

@@ -5,3 +5,4 @@ torchinfo
 scikit-learn
 matplotlib
 timm
+seaborn
